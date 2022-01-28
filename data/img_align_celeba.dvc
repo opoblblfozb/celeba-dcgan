@@ -1,0 +1,5 @@
+outs:
+- md5: 07e52ea6957d01707731b8a10dafeb11.dir
+  size: 1409859160
+  nfiles: 202599
+  path: img_align_celeba
