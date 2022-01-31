@@ -4,28 +4,76 @@ import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as vutils
+import numpy as np
+from PIL import Image
 
 from dcgan import get_netD, get_netG
 from utils import get_data_loader
+import wandb
 
-def get_trainer(data_root, ngpu, lr, beta1, num_epochs, image_size, batch_size, wokers):
+
+def get_trainer(
+        data_root,
+        ngpu,
+        lr,
+        beta1,
+        num_epochs,
+        image_size,
+        batch_size,
+        workers,
+        nz,
+        nc,
+        ndf,
+        ngf,
+        pjname,
+        group):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    netD = get_netD(ngpu=ngpu, device=device)
-    netG = get_netG(ngpu=ngpu, device=device)
-    dataloder = get_data_loader(data_root, image_size=image_size, batch_size=batch_size, workers=wokers)
-
+    netD = get_netD(ngpu=ngpu, device=device, nc=nc, ndf=ndf)
+    netG = get_netG(ngpu=ngpu, device=device, nz=nz, ngf=ngf, nc=nc)
+    print(workers)
+    dataloader = get_data_loader(
+        data_root,
+        image_size=image_size,
+        batch_size=batch_size,
+        workers=workers)
+    config = {
+        "netD": netD,
+        "netG": netG,
+        "device": device,
+        "lr": lr,
+        "beta1": beta1,
+        "num_epochs": num_epochs,
+        "dataloader": dataloader,
+        "nz": nz,
+        "pjname": pjname,
+        "group": group,
+    }
+    trainer = Trainer(**config)
+    return trainer
 
 
 class Trainer:
-    def __init__(self):
-        self.netD = None
-        self.netG = None
-        self.device = None
-        self.lr = None
-        self.beta1 = None
-        self.num_epochs = None
-        self.dataloader = None
-        self.nz = None
+    def __init__(
+            self,
+            netD,
+            netG,
+            device,
+            lr,
+            beta1,
+            num_epochs,
+            dataloader,
+            nz,
+            pjname,
+            group):
+        self.netD = netD
+        self.netG = netG
+        self.device = device
+        self.lr = lr
+        self.beta1 = beta1
+        self.num_epochs = num_epochs
+        self.dataloader = dataloader
+        self.nz = nz
+        self.fixed_z = torch.randn(64, self.nz, 1, 1, device=self.device)
         # Establish convention for real and fake labels during training
         self.real_label = 1.
         self.fake_label = 0.
@@ -38,6 +86,22 @@ class Trainer:
         self.optimizerG = optim.Adam(
             self.netG.parameters(), lr=self.lr, betas=(
                 self.beta1, 0.999))
+
+        wandb.init(project=pjname, group=group)
+        wandb.watch(self.netD)
+        wandb.watch(self.netG)
+
+    def generate_tensor_image(self):
+        return self.netG(self.fixed_z)
+
+    def generate_image(self):
+        tensor = self.generate_tensor_image()
+        arr = np.transpose(
+            vutils.make_grid(
+                tensor,
+                padding=2,
+                normalize=True).cpu())
+        return Image.fromarray(arr)
 
     def train_netD(self, data):
         ############################
@@ -76,6 +140,7 @@ class Trainer:
         errD = errD_real + errD_fake
         # Update D
         self.optimizerD.step()
+        return errD
 
     def train_netG(self, data):
         ############################
@@ -104,6 +169,7 @@ class Trainer:
         D_G_z2 = output.mean().item()
         # Update G
         self.optimizerG.step()
+        return errG
 
     def train(self):
 
@@ -113,5 +179,8 @@ class Trainer:
         for epoch in range(self.num_epochs):
             # For each batch in the dataloader
             for i, data in enumerate(self.dataloader, 0):
-                self.train_netD(data)
-                self.train_netG(data)
+                errD = self.train_netD(data)
+                errG = self.train_netG(data)
+                image = self.generate_image()
+                wandb.log({"errD": errD, "errG": errG,
+                          "image": wandb.Image(image)})

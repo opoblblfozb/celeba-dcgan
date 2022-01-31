@@ -79,9 +79,9 @@ class Discriminator(nn.Module):
         return self.main(input)
 
 
-def get_netG(ngpu: int, device: str) -> Generator:
+def get_netG(ngpu: int, device: str, nz: int, ngf: int, nc: int) -> Generator:
     # Create the generator
-    netG = Generator(ngpu).to(device)
+    netG = Generator(ngpu, nz, ngf, nc).to(device)
 
     # Handle multi-gpu if desired
     if (device.type == 'cuda') and (ngpu > 1):
@@ -93,9 +93,9 @@ def get_netG(ngpu: int, device: str) -> Generator:
     return netG
 
 
-def get_netD(ngpu: int, device: str) -> Discriminator:
+def get_netD(ngpu: int, device: str, nc: int, ndf: int) -> Discriminator:
     # Create the Discriminator
-    netD = Discriminator(ngpu).to(device)
+    netD = Discriminator(ngpu, nc, ndf).to(device)
 
     # Handle multi-gpu if desired
     if (device.type == 'cuda') and (ngpu > 1):
